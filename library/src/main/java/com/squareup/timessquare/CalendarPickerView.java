@@ -62,7 +62,8 @@ public class CalendarPickerView extends ListView {
   }
 
   private final CalendarPickerView.MonthAdapter adapter;
-  private final List<List<List<MonthCellDescriptor>>> cells = new ArrayList<>();
+  private final IndexedLinkedHashMap<String, List<List<MonthCellDescriptor>>> cells =
+      new IndexedLinkedHashMap<>();
   final MonthView.Listener listener = new CellClickedListener();
   final List<MonthDescriptor> months = new ArrayList<>();
   final List<MonthCellDescriptor> selectedCells = new ArrayList<>();
@@ -242,7 +243,7 @@ public class CalendarPickerView extends ListView {
       MonthDescriptor month =
           new MonthDescriptor(monthCounter.get(MONTH), monthCounter.get(YEAR), date,
               monthNameFormat.format(date));
-      cells.add(getMonthCells(month, monthCounter));
+      cells.put(monthKey(month), getMonthCells(month, monthCounter));
       Logr.d("Adding month %s", month);
       months.add(month);
       monthCounter.add(MONTH, 1);
@@ -683,13 +684,17 @@ public class CalendarPickerView extends ListView {
         selectedCells.get(0).setRangeState(MonthCellDescriptor.RangeState.FIRST);
         selectedCells.get(1).setRangeState(MonthCellDescriptor.RangeState.LAST);
 
+
         if (previouslyUnSelectableCell != null
             && !previouslyUnSelectableCell.getDate().equals(end)) {
           previouslyUnSelectableCell.setSelectable(false);
           previouslyUnSelectableCell = null;
         }
 
-        for (List<List<MonthCellDescriptor>> month : cells) {
+        int startMonthIndex = cells.getIndexOfKey(monthKey(selectedCals.get(0)));
+        int endMonthIndex = cells.getIndexOfKey(monthKey(selectedCals.get(1)));
+        for (int monthIndex = startMonthIndex; monthIndex <= endMonthIndex; monthIndex++) {
+          List<List<MonthCellDescriptor>> month = cells.getValueAtIndex(monthIndex);
           for (List<MonthCellDescriptor> week : month) {
             for (MonthCellDescriptor singleCell : week) {
               if (singleCell.getDate().after(start)
@@ -711,7 +716,7 @@ public class CalendarPickerView extends ListView {
   }
 
   private void checkForUnSelectableDate(Calendar newlySelectedCal) {
-    for (List<List<MonthCellDescriptor>> month : cells) {
+    for (List<List<MonthCellDescriptor>> month : cells.values()) {
       for (List<MonthCellDescriptor> week : month) {
         for (MonthCellDescriptor singleCell : week) {
           if (singleCell.getDate().after(selectedCals.get(0).getTime())
@@ -730,7 +735,12 @@ public class CalendarPickerView extends ListView {
   }
 
   private void setLastDateSelectable(Date start) {
-    for (List<List<MonthCellDescriptor>> month : cells) {
+    Calendar searchCal = Calendar.getInstance(timeZone, locale);
+    searchCal.setTime(start);
+    int startMonthIndex = cells.getIndexOfKey(monthKey(searchCal));
+    int endMonthIndex = cells.size() - 1;
+    for (int monthIndex = startMonthIndex; monthIndex <= endMonthIndex; monthIndex++) {
+      List<List<MonthCellDescriptor>> month = cells.getValueAtIndex(monthIndex);
       for (List<MonthCellDescriptor> week : month) {
         for (MonthCellDescriptor singleCell : week) {
           if (singleCell.getDate().after(start)
@@ -743,6 +753,14 @@ public class CalendarPickerView extends ListView {
         }
       }
     }
+  }
+
+  private String monthKey(Calendar cal) {
+    return cal.get(YEAR) + "-" + cal.get(MONTH);
+  }
+
+  private String monthKey(MonthDescriptor month) {
+    return month.getYear() + "-" + month.getMonth();
   }
 
   private void clearOldSelections() {
@@ -832,21 +850,20 @@ public class CalendarPickerView extends ListView {
 
   /** Return cell and month-index (for scrolling) for a given Date. */
   private MonthCellWithMonthIndex getMonthCellWithIndexByDate(Date date) {
-    int index = 0;
     Calendar searchCal = Calendar.getInstance(timeZone, locale);
     searchCal.setTime(date);
+    String monthKey = monthKey(searchCal);
     Calendar actCal = Calendar.getInstance(timeZone, locale);
 
-    for (List<List<MonthCellDescriptor>> monthCells : cells) {
-      for (List<MonthCellDescriptor> weekCells : monthCells) {
-        for (MonthCellDescriptor actCell : weekCells) {
-          actCal.setTime(actCell.getDate());
-          if (sameDate(actCal, searchCal) && actCell.isSelectable()) {
-            return new MonthCellWithMonthIndex(actCell, index);
-          }
+    int index = cells.getIndexOfKey(monthKey);
+    List<List<MonthCellDescriptor>> monthCells = cells.get(monthKey);
+    for (List<MonthCellDescriptor> weekCells : monthCells) {
+      for (MonthCellDescriptor actCell : weekCells) {
+        actCal.setTime(actCell.getDate());
+        if (sameDate(actCal, searchCal) && actCell.isSelectable()) {
+          return new MonthCellWithMonthIndex(actCell, index);
         }
       }
-      index++;
     }
     return null;
   }
@@ -877,8 +894,8 @@ public class CalendarPickerView extends ListView {
 
     @Override public View getView(int position, View convertView, ViewGroup parent) {
       MonthView monthView = (MonthView) convertView;
-      if (monthView == null
-             || !monthView.getTag(R.id.day_view_adapter_class).equals(dayViewAdapter.getClass())) {
+      if (monthView == null //
+          || !monthView.getTag(R.id.day_view_adapter_class).equals(dayViewAdapter.getClass())) {
         monthView =
             MonthView.create(parent, inflater, weekdayNameFormat, listener, today, dividerColor,
                 dayBackgroundResId, dayTextColorResId, titleTextColor, displayHeader,
@@ -887,8 +904,8 @@ public class CalendarPickerView extends ListView {
       } else {
         monthView.setDecorators(decorators);
       }
-      monthView.init(months.get(position), cells.get(position), displayOnly, titleTypeface,
-          dateTypeface);
+      monthView.init(months.get(position), cells.getValueAtIndex(position), displayOnly,
+          titleTypeface, dateTypeface);
       return monthView;
     }
   }
